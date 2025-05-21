@@ -5,6 +5,7 @@ from PyQt5 import uic
 from PyQt5.QtCore import QAbstractTableModel, QModelIndex, QSettings, Qt
 from PyQt5.QtWidgets import QGroupBox, QHeaderView
 from pandas import DataFrame
+import pandas as pd
 
 from instruments.instrument import Instrument
 
@@ -23,7 +24,8 @@ class InternalRTableModel(QAbstractTableModel):
 
     def append(self, row):
         self.beginInsertRows(QModelIndex(), self.rowCount(1), self.rowCount(1))
-        self._data = self._data.append(row, ignore_index=True)
+        new_row_df = DataFrame([row])
+        self._data = pd.concat([self._data, new_row_df], ignore_index=True)
         self.endInsertRows()
 
     def data(self, index, role):
