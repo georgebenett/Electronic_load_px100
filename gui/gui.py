@@ -1,4 +1,9 @@
 import matplotlib
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import os
+from datetime import datetime
 
 matplotlib.use('Qt5Agg')
 
@@ -117,6 +122,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.twinax.set_ylim(0, 10)
             self.canvas.draw()
 
+            # Check if test has just completed (device turned off)
+            if 'is_on' in row and not row['is_on'] and hasattr(self, 'prev_is_on') and self.prev_is_on:
+                print("Test completed, writing logs and sending email...")
+                self.write_logs()
+
+            # Store current state for next comparison
+            self.prev_is_on = row.get('is_on', False)
+
     def status_update(self, status):
         self.statusBar().showMessage(status)
 
@@ -188,10 +201,69 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def write_logs(self):
         if self.logControl.isChecked():
-            self.internal_r.write(self.logControl.full_path,
-                                  self.cellLabel.text())
-            self.backend.datastore.write(self.logControl.full_path,
-                                         self.cellLabel.text())
+            cell_label = self.cellLabel.text()
+            base_path = self.logControl.full_path
+            log_path = os.path.join(base_path, "logs")
+
+            print(f"Writing logs for {cell_label} to {log_path}")
+
+            # Create the log directory if it doesn't exist
+            try:
+                os.makedirs(log_path, exist_ok=True)
+                print(f"Ensured log directory exists: {log_path}")
+            except Exception as e:
+                print(f"Error creating log directory: {e}")
+                return
+
+            # Write logs and get file paths
+            internal_r_file = self.internal_r.write(log_path, cell_label)
+            data_file = self.backend.datastore.write(log_path, cell_label)
+
+            print(f"Log files: internal_r={internal_r_file}, data={data_file}")
+
+            # Save the current plot as an image
+            import tempfile
+
+            # Create a temporary file for the plot
+            fd, plot_file = tempfile.mkstemp(suffix='.png')
+            os.close(fd)
+            self.canvas.fig.savefig(plot_file, dpi=100)
+            print(f"Plot saved to {plot_file}")
+
+            # Get battery data for email
+            data = self.backend.datastore
+            if data:
+                voltage = data.lastval('voltage')
+                current = data.lastval('current')
+                cap_ah = data.lastval('cap_ah')
+                cap_wh = data.lastval('cap_wh')
+                test_time = data.lastval('time').strftime("%H:%M:%S")
+
+                print(f"Preparing email with data: V={voltage}, I={current}, Ah={cap_ah}, Wh={cap_wh}")
+
+                # Send email with test results
+                subject = f"Battery Test Completed: {cell_label}"
+                message = f"""Battery Test Results for {cell_label}
+
+Results:
+- Final Voltage: {voltage:.3f} V
+- Final Current: {current:.3f} A
+- Capacity: {cap_ah:.3f} AH / {cap_wh:.3f} WH
+- Test Duration: {test_time}
+
+The test data files and plot are attached.
+"""
+                attachments = [f for f in [internal_r_file, data_file, plot_file] if f]
+                print(f"Sending email with {len(attachments)} attachments")
+                self.send_email_notification(subject, message, attachments)
+
+                # Clean up the temporary file
+                try:
+                    os.remove(plot_file)
+                except Exception as e:
+                    print(f"Error removing temp file: {e}")
+            else:
+                print("No data available for email")
 
     def save_settings(self):
         settings = QSettings()
@@ -201,6 +273,45 @@ class MainWindow(QtWidgets.QMainWindow):
         settings.setValue("MainWindow/cellLabel", self.cellLabel.text())
 
         settings.sync()
+
+    def send_email_notification(self, subject, message, attachments=None):
+        """Send email notification with optional attachments."""
+        try:
+            # Email configuration
+            smtp_server = "smtp.gmail.com"
+            smtp_port = 587
+            sender_email = "xxxxx@gmail.com"
+            password = "xxxxx"
+            recipient = "xxxxx@gmail.com"
+
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = sender_email
+            msg['To'] = recipient
+            msg['Subject'] = subject
+
+            # Add message body
+            msg.attach(MIMEText(message, 'plain'))
+
+            # Add attachments if any
+            if attachments:
+                for file_path in attachments:
+                    if os.path.exists(file_path):
+                        with open(file_path, 'rb') as file:
+                            from email.mime.application import MIMEApplication
+                            part = MIMEApplication(file.read(), Name=os.path.basename(file_path))
+                        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+                        msg.attach(part)
+
+            # Connect to server and send email
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.starttls()
+                server.login(sender_email, password)
+                server.send_message(msg)
+
+            print(f"Email notification sent to {recipient}")
+        except Exception as e:
+            print(f"Failed to send email: {str(e)}")
 
 
 class GUI:

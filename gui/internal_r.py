@@ -24,7 +24,7 @@ class InternalRTableModel(QAbstractTableModel):
 
     def append(self, row):
         self.beginInsertRows(QModelIndex(), self.rowCount(1), self.rowCount(1))
-        new_row_df = DataFrame([row])
+        new_row_df = DataFrame([row], columns=self._data.columns)
         self._data = pd.concat([self._data, new_row_df], ignore_index=True)
         self.endInsertRows()
 
@@ -39,6 +39,8 @@ class InternalRTableModel(QAbstractTableModel):
             full_path = path.join(basedir, filename)
             print("Write Internal R data to {}".format(path.relpath(full_path)))
             self._data.drop_duplicates().to_csv(full_path)
+            return full_path
+        return None
 
     def reset(self):
         self.beginResetModel()
@@ -100,7 +102,7 @@ class InternalR(QGroupBox):
         self.tableModel.reset()
 
     def write(self, path, prefix):
-        self.tableModel.write(path, prefix)
+        return self.tableModel.write(path, prefix)
 
     def data_row(self, data, row):
         if not self.isChecked() or not self.v_period:
