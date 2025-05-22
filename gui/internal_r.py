@@ -108,9 +108,12 @@ class InternalR(QGroupBox):
 
         if self._valid_data(data):
             self._data_loop(data)
-        else:
+        elif self.mode != MODE_IDLE:
             self.ignored_rows += 1
             if self.ignored_rows > MAX_BAD_ROWS:
+                if self.mode == MODE_DROP:
+                    self.backend.send_command(
+                        {Instrument.COMMAND_SET_CURRENT: self.pre_current})
                 self._idle()
 
     def _idle(self):
