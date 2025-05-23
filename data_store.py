@@ -17,14 +17,23 @@ class DataStore:
         self.data = DataFrame()
 
     def append(self, row):
-        # Only log every 10 seconds or on state changes to reduce terminal spam
+        # Only log on state changes or significant events to reduce terminal spam
         current_time = datetime.now()
-        if not hasattr(self, 'last_log_time') or \
-           (current_time - self.last_log_time).total_seconds() > 10 or \
-           (self.lastrow and self.lastrow.get('is_on') != row['is_on']):
-
-            tnow = current_time.isoformat(sep=' ', timespec='milliseconds')
-            print(f"{tnow} time={row['time']} v={row['voltage']:.3f} i={row['current']:.3f} Ah={row['cap_ah']:.2f}")
+        should_log = False
+        
+        # Log on state changes (on/off)
+        if self.lastrow and self.lastrow.get('is_on') != row['is_on']:
+            should_log = True
+            state = "ON" if row['is_on'] else "OFF"
+            print(f"{current_time.isoformat(sep=' ', timespec='seconds')} Device turned {state}")
+        
+        # Log every 60 seconds during operation (instead of 10)
+        elif row.get('is_on') and (not hasattr(self, 'last_log_time') or 
+                                   (current_time - self.last_log_time).total_seconds() > 60):
+            should_log = True
+            print(f"{current_time.isoformat(sep=' ', timespec='seconds')} Running: {row['time']} - V={row['voltage']:.3f} I={row['current']:.3f} Ah={row['cap_ah']:.2f}")
+        
+        if should_log:
             self.last_log_time = current_time
 
         self.lastrow = row
@@ -43,7 +52,7 @@ class DataStore:
         full_path = path.join(basedir, filename)
         export_rows = self.data.drop_duplicates()
         if export_rows.shape[0]:
-            print("Write RAW data to {}".format(path.relpath(full_path)))
+            print("Write RAW data to {}".format(path.basename(full_path)))
             self.data.drop_duplicates().to_csv(full_path)
             return full_path
         else:

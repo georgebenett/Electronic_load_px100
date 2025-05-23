@@ -55,6 +55,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.swCCCV = SwCCCV()
         self.internal_r = InternalR()
         self.email_settings = EmailSettings()
+        self.email_settings.set_main_window(self)
         self.controlsLayout.insertWidget(3, self.internal_r)
         self.tab2.layout().addWidget(self.logControl, 0, 0)
         self.tab2.layout().addWidget(self.swCCCV, 1, 0)
@@ -250,14 +251,14 @@ class MainWindow(QtWidgets.QMainWindow):
             internal_r_file = self.internal_r.write(log_path, cell_label)
             data_file = self.backend.datastore.write(log_path, cell_label)
 
-            if not all([internal_r_file, data_file]):
-                print("Failed to write log files")
-                return
-
             print(f"Log files: internal_r={internal_r_file}, data={data_file}")
 
+            # At least the data file should exist
+            if not data_file:
+                print("Failed to write data file")
+                return
+
             # Save the current plot as an image with cell label
-            # Create a temporary file for the plot with cell label
             plot_filename = f"{cell_label}_plot.png"
             fd, plot_file = tempfile.mkstemp(suffix=f'_{plot_filename}')
             os.close(fd)
@@ -278,7 +279,8 @@ Results:
 
 The test data files and plot are attached.
 """
-            attachments = [f for f in [internal_r_file, data_file, plot_file] if f]
+            # Include all available files (internal_r_file might be None)
+            attachments = [f for f in [internal_r_file, data_file, plot_file] if f and os.path.exists(f)]
             if attachments:
                 print(f"Sending email with {len(attachments)} attachments")
                 self.send_email_notification(subject, message, attachments)
@@ -311,7 +313,8 @@ The test data files and plot are attached.
             recipient = self.email_settings.recipient_email.text()
 
             if not all([sender_email, password, recipient]):
-                print("Email settings not configured")
+                print("❌ Email settings not configured")
+                self.email_settings.save_email_history(subject, recipient, 'failed - not configured')
                 return
 
             # Create message
@@ -339,9 +342,12 @@ The test data files and plot are attached.
                 server.login(sender_email, password)
                 server.send_message(msg)
 
-            print(f"Email notification sent to {recipient}")
+            print(f"✅ Email sent successfully to {recipient}")
+            self.email_settings.save_email_history(subject, recipient, 'success')
+            
         except Exception as e:
-            print(f"Failed to send email: {str(e)}")
+            print(f"❌ Failed to send email: {str(e)}")
+            self.email_settings.save_email_history(subject, recipient, f'failed - {str(e)}')
 
 
 class GUI:
