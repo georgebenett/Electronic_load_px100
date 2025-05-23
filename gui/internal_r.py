@@ -24,8 +24,30 @@ class InternalRTableModel(QAbstractTableModel):
 
     def append(self, row):
         self.beginInsertRows(QModelIndex(), self.rowCount(1), self.rowCount(1))
+
+        # Create DataFrame with the same columns as existing data
         new_row_df = DataFrame([row], columns=self._data.columns)
-        self._data = pd.concat([self._data, new_row_df], ignore_index=True)
+
+        # Only proceed if the new row has valid data
+        if not new_row_df.empty:
+            # Remove any columns that are entirely NA from the new row
+            new_row_df = new_row_df.dropna(axis=1, how='all')
+
+            # Only concatenate if we have valid data after cleaning
+            if not new_row_df.empty and not new_row_df.isna().all().all():
+                # Ensure columns match before concatenating
+                if self._data.empty:
+                    # If existing data is empty, just assign the new row
+                    self._data = new_row_df
+                else:
+                    # Only concatenate columns that exist in both DataFrames
+                    common_columns = self._data.columns.intersection(new_row_df.columns)
+                    if len(common_columns) > 0:
+                        self._data = pd.concat([
+                            self._data[common_columns],
+                            new_row_df[common_columns]
+                        ], ignore_index=True)
+
         self.endInsertRows()
 
     def data(self, index, role):
