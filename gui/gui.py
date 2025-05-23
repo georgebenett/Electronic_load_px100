@@ -176,10 +176,44 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.set_current.setValue(set_current)
 
             is_on = data.lastval('is_on')
-            if is_on:
-                self.en_checkbox.setCheckState(Qt.Checked)
-            else:
-                self.en_checkbox.setCheckState(Qt.Unchecked)
+            if is_on != self.test_running:
+                self.test_running = is_on
+                if is_on:
+                    self.start_test_button.setText("Stop Test")
+                    self.start_test_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: rgba(255, 200, 100, 0.7);
+                            border: 1px solid #ccc;
+                            border-radius: 4px;
+                            padding: 8px 15px;
+                            font-weight: bold;
+                            font-size: 12px;
+                        }
+                        QPushButton:hover {
+                            background-color: rgba(255, 180, 80, 0.8);
+                        }
+                        QPushButton:pressed {
+                            background-color: rgba(255, 160, 60, 0.9);
+                        }
+                    """)
+                else:
+                    self.start_test_button.setText("Start Test")
+                    self.start_test_button.setStyleSheet("""
+                        QPushButton {
+                            background-color: rgba(200, 255, 200, 0.7);
+                            border: 1px solid #ccc;
+                            border-radius: 4px;
+                            padding: 8px 15px;
+                            font-weight: bold;
+                            font-size: 12px;
+                        }
+                        QPushButton:hover {
+                            background-color: rgba(180, 255, 180, 0.8);
+                        }
+                        QPushButton:pressed {
+                            background-color: rgba(160, 255, 160, 0.9);
+                        }
+                    """)
 
             voltage = data.lastval('voltage')
             current = data.lastval('current')
@@ -236,12 +270,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.backend.at_exit()
         event.accept()
 
-    def enabled_changed(self):
-        if self.en_checkbox.hasFocus():
-            value = self.en_checkbox.isChecked()
-            self.en_checkbox.clearFocus()
-            self.backend.send_command({Instrument.COMMAND_ENABLE: value})
-
     def voltage_changed(self):
         if self.set_voltage.hasFocus():
             self.set_voltage_timer.start(1000)
@@ -278,6 +306,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.backend.datastore.reset()
         self.backend.send_command({Instrument.COMMAND_RESET: 0.0})
         self.email_sent = False
+        
+        # Reset the test button state
+        self.test_running = False
+        self.start_test_button.setText("Start Test")
+        self.start_test_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(200, 255, 200, 0.7);
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px 15px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: rgba(180, 255, 180, 0.8);
+            }
+            QPushButton:pressed {
+                background-color: rgba(160, 255, 160, 0.9);
+            }
+        """)
 
     def load_settings(self):
         settings = QSettings()
@@ -390,7 +438,7 @@ The test data files and plot are attached.
             recipient = self.email_settings.recipient_email.text()
 
             if not all([sender_email, password, recipient]):
-                print("❌ Email settings not configured")
+                print("Email settings not configured")
                 self.email_settings.save_email_history(subject, recipient, 'failed - not configured')
                 return
 
@@ -419,59 +467,12 @@ The test data files and plot are attached.
                 server.login(sender_email, password)
                 server.send_message(msg)
 
-            print(f"✅ Email sent successfully to {recipient}")
+            print(f"Email sent successfully to {recipient}")
             self.email_settings.save_email_history(subject, recipient, 'success')
             
         except Exception as e:
-            print(f"❌ Failed to send email: {str(e)}")
+            print(f"Failed to send email: {str(e)}")
             self.email_settings.save_email_history(subject, recipient, f'failed - {str(e)}')
-
-    def toggle_test(self):
-        """Toggle the test state between start and stop."""
-        if not self.test_running:
-            # Start the test
-            self.test_running = True
-            self.start_test_button.setText("Stop Test")
-            self.start_test_button.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 200, 100, 0.7);
-                    border: 1px solid #ccc;
-                    border-radius: 4px;
-                    padding: 8px 15px;
-                    font-weight: bold;
-                    font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 180, 80, 0.8);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(255, 160, 60, 0.9);
-                }
-            """)
-            self.backend.send_command({Instrument.COMMAND_ENABLE: True})
-            print("Test started")
-        else:
-            # Stop the test
-            self.test_running = False
-            self.start_test_button.setText("Start Test")
-            self.start_test_button.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(200, 255, 200, 0.7);
-                    border: 1px solid #ccc;
-                    border-radius: 4px;
-                    padding: 8px 15px;
-                    font-weight: bold;
-                    font-size: 12px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(180, 255, 180, 0.8);
-                }
-                QPushButton:pressed {
-                    background-color: rgba(160, 255, 160, 0.9);
-                }
-            """)
-            self.backend.send_command({Instrument.COMMAND_ENABLE: False})
-            print("Test stopped")
 
     def send_manual_email(self):
         """Manually send test results email from main UI."""
@@ -539,6 +540,53 @@ Test plot is attached.
         except Exception as e:
             QMessageBox.critical(self, "Error", 
                 f"Failed to send email:\n{str(e)}")
+
+    def toggle_test(self):
+        """Toggle the test state between start and stop."""
+        if not self.test_running:
+            # Start the test
+            self.test_running = True
+            self.start_test_button.setText("Stop Test")
+            self.start_test_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 200, 100, 0.7);
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    padding: 8px 15px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 180, 80, 0.8);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(255, 160, 60, 0.9);
+                }
+            """)
+            self.backend.send_command({Instrument.COMMAND_ENABLE: True})
+            print("Test started")
+        else:
+            # Stop the test
+            self.test_running = False
+            self.start_test_button.setText("Start Test")
+            self.start_test_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(200, 255, 200, 0.7);
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    padding: 8px 15px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(180, 255, 180, 0.8);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(160, 255, 160, 0.9);
+                }
+            """)
+            self.backend.send_command({Instrument.COMMAND_ENABLE: False})
+            print("Test stopped")
 
 
 class GUI:
