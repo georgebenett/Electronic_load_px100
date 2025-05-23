@@ -1,6 +1,6 @@
 from PyQt5 import uic
 from PyQt5.QtCore import QSettings
-from PyQt5.QtWidgets import QGroupBox, QMessageBox, QPushButton, QVBoxLayout
+from PyQt5.QtWidgets import QGroupBox, QMessageBox
 import smtplib
 import os
 import tempfile
@@ -13,11 +13,11 @@ class EmailSettings(QGroupBox):
     def __init__(self, *args, **kwargs):
         super(EmailSettings, self).__init__(*args, **kwargs)
         uic.loadUi("gui/email_settings.ui", self)
-        
+
         self.test_email_button.clicked.connect(self.send_test_email)
         self.load_settings()
         self.main_window = None  # Will be set by main window
-        
+
         # Connect text change signals to auto-save
         self.sender_email.textChanged.connect(self.save_settings)
         self.email_password.textChanged.connect(self.save_settings)
@@ -38,7 +38,7 @@ class EmailSettings(QGroupBox):
             recipient = self.recipient_email.text()
 
             if not all([sender_email, password, recipient]):
-                QMessageBox.warning(self, "Missing Information", 
+                QMessageBox.warning(self, "Missing Information",
                     "Please fill in all email settings before sending a test email.")
                 return
 
@@ -49,7 +49,7 @@ class EmailSettings(QGroupBox):
             msg['Subject'] = "Battery Tester - Test Email"
 
             body = """This is a test email from your Battery Tester application.
-            
+
 If you're receiving this email, your email settings are configured correctly!"""
             msg.attach(MIMEText(body, 'plain'))
 
@@ -59,11 +59,11 @@ If you're receiving this email, your email settings are configured correctly!"""
                 server.login(sender_email, password)
                 server.send_message(msg)
 
-            QMessageBox.information(self, "Success", 
+            QMessageBox.information(self, "Success",
                 "Test email sent successfully!")
-            
+
         except Exception as e:
-            QMessageBox.critical(self, "Error", 
+            QMessageBox.critical(self, "Error",
                 f"Failed to send test email:\n{str(e)}")
 
     def load_settings(self):
@@ -71,7 +71,7 @@ If you're receiving this email, your email settings are configured correctly!"""
         self.sender_email.setText(settings.value("Email/sender", ""))
         self.email_password.setText(settings.value("Email/password", ""))
         self.recipient_email.setText(settings.value("Email/recipient", ""))
-        
+
         # Load additional email preferences
         self.auto_send_enabled = settings.value("Email/auto_send", True, type=bool)
         self.email_on_completion = settings.value("Email/on_completion", True, type=bool)
@@ -82,7 +82,7 @@ If you're receiving this email, your email settings are configured correctly!"""
         settings.setValue("Email/sender", self.sender_email.text())
         settings.setValue("Email/password", self.email_password.text())
         settings.setValue("Email/recipient", self.recipient_email.text())
-        
+
         # Save additional email preferences
         settings.setValue("Email/auto_send", getattr(self, 'auto_send_enabled', True))
         settings.setValue("Email/on_completion", getattr(self, 'email_on_completion', True))
@@ -92,10 +92,10 @@ If you're receiving this email, your email settings are configured correctly!"""
     def save_email_history(self, subject, recipient, status):
         """Save email sending history for debugging/tracking."""
         settings = QSettings()
-        
+
         # Get existing history (limit to last 10 entries)
         history = settings.value("Email/history", [], type=list)
-        
+
         # Add new entry
         new_entry = {
             'timestamp': datetime.now().isoformat(),
@@ -103,13 +103,13 @@ If you're receiving this email, your email settings are configured correctly!"""
             'recipient': recipient,
             'status': status  # 'success' or 'failed'
         }
-        
+
         history.append(new_entry)
-        
+
         # Keep only last 10 entries
         if len(history) > 10:
             history = history[-10:]
-        
+
         settings.setValue("Email/history", history)
         settings.sync()
 
