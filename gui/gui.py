@@ -1,9 +1,10 @@
 import matplotlib
 import smtplib
+import os
+import tempfile
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
-from datetime import datetime
+from datetime import datetime, time
 
 matplotlib.use('Qt5Agg')
 
@@ -24,13 +25,13 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 
 from matplotlib.figure import Figure
-from datetime import time
 
 from instruments.instrument import Instrument
 from gui.swcccv import SwCCCV
 from gui.internal_r import InternalR
 from gui.log_control import LogControl
 from sys import argv
+from gui.email_settings import EmailSettings
 
 
 class MplCanvas(FigureCanvasQTAgg):
@@ -53,10 +54,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.logControl = LogControl()
         self.swCCCV = SwCCCV()
         self.internal_r = InternalR()
+        self.email_settings = EmailSettings()
         self.controlsLayout.insertWidget(3, self.internal_r)
         self.tab2.layout().addWidget(self.logControl, 0, 0)
         self.tab2.layout().addWidget(self.swCCCV, 1, 0)
+        self.tab2.layout().addWidget(self.email_settings, 2, 0)
         self.tabs.addTab(self.tab2, "Settings")
+        self.email_sent = False
         self.show()
 
     def plot_layout(self):
@@ -124,8 +128,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Check if test has just completed (device turned off)
             if 'is_on' in row and not row['is_on'] and hasattr(self, 'prev_is_on') and self.prev_is_on:
-                print("Test completed, writing logs and sending email...")
-                self.write_logs()
+                if not self.email_sent:
+                    print("Test completed, writing logs and sending email...")
+                    self.write_logs()
+                    self.email_sent = True
+                else:
+                    print("Email already sent for this test")
 
             # Store current state for next comparison
             self.prev_is_on = row.get('is_on', False)
@@ -143,6 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.logControl.save_settings()
         self.swCCCV.save_settings()
         self.internal_r.save_settings()
+        self.email_settings.save_settings()
         self.save_settings()
         self.write_logs()
 
@@ -190,6 +199,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.internal_r.reset()
         self.backend.datastore.reset()
         self.backend.send_command({Instrument.COMMAND_RESET: 0.0})
+        self.email_sent = False
 
     def load_settings(self):
         settings = QSettings()
@@ -201,7 +211,28 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def write_logs(self):
         if self.logControl.isChecked():
-            cell_label = self.cellLabel.text()
+            # Get battery data first to validate
+            data = self.backend.datastore
+            if not data or len(data.data) < 2:  # Check if we have at least 2 data points
+                print("Insufficient data for logging/email")
+                return
+
+            # Validate critical data values
+            voltage = data.lastval('voltage')
+            current = data.lastval('current')
+            cap_ah = data.lastval('cap_ah')
+            cap_wh = data.lastval('cap_wh')
+            test_time = data.lastval('time')
+
+            if any(v is None for v in [voltage, current, cap_ah, cap_wh, test_time]):
+                print("Missing critical data values, skipping email")
+                return
+
+            if cap_ah <= 0 or cap_wh <= 0:
+                print("Invalid capacity values, skipping email")
+                return
+
+            cell_label = self.cellLabel.text().replace(" ", "_")  # Replace spaces with underscores
             base_path = self.logControl.full_path
             log_path = os.path.join(base_path, "logs")
 
@@ -219,41 +250,36 @@ class MainWindow(QtWidgets.QMainWindow):
             internal_r_file = self.internal_r.write(log_path, cell_label)
             data_file = self.backend.datastore.write(log_path, cell_label)
 
+            if not all([internal_r_file, data_file]):
+                print("Failed to write log files")
+                return
+
             print(f"Log files: internal_r={internal_r_file}, data={data_file}")
 
-            # Save the current plot as an image
-            import tempfile
-
-            # Create a temporary file for the plot
-            fd, plot_file = tempfile.mkstemp(suffix='.png')
+            # Save the current plot as an image with cell label
+            # Create a temporary file for the plot with cell label
+            plot_filename = f"{cell_label}_plot.png"
+            fd, plot_file = tempfile.mkstemp(suffix=f'_{plot_filename}')
             os.close(fd)
             self.canvas.fig.savefig(plot_file, dpi=100)
             print(f"Plot saved to {plot_file}")
 
-            # Get battery data for email
-            data = self.backend.datastore
-            if data:
-                voltage = data.lastval('voltage')
-                current = data.lastval('current')
-                cap_ah = data.lastval('cap_ah')
-                cap_wh = data.lastval('cap_wh')
-                test_time = data.lastval('time').strftime("%H:%M:%S")
+            print(f"Preparing email with data: V={voltage:.3f}, I={current:.3f}, Ah={cap_ah:.3f}, Wh={cap_wh:.3f}")
 
-                print(f"Preparing email with data: V={voltage}, I={current}, Ah={cap_ah}, Wh={cap_wh}")
-
-                # Send email with test results
-                subject = f"Battery Test Completed: {cell_label}"
-                message = f"""Battery Test Results for {cell_label}
+            # Send email with test results
+            subject = f"Battery Test Completed: {cell_label}"
+            message = f"""Battery Test Results for {cell_label}
 
 Results:
 - Final Voltage: {voltage:.3f} V
 - Final Current: {current:.3f} A
 - Capacity: {cap_ah:.3f} AH / {cap_wh:.3f} WH
-- Test Duration: {test_time}
+- Test Duration: {test_time.strftime("%H:%M:%S")}
 
 The test data files and plot are attached.
 """
-                attachments = [f for f in [internal_r_file, data_file, plot_file] if f]
+            attachments = [f for f in [internal_r_file, data_file, plot_file] if f]
+            if attachments:
                 print(f"Sending email with {len(attachments)} attachments")
                 self.send_email_notification(subject, message, attachments)
 
@@ -263,7 +289,7 @@ The test data files and plot are attached.
                 except Exception as e:
                     print(f"Error removing temp file: {e}")
             else:
-                print("No data available for email")
+                print("No attachments available, skipping email")
 
     def save_settings(self):
         settings = QSettings()
@@ -280,9 +306,13 @@ The test data files and plot are attached.
             # Email configuration
             smtp_server = "smtp.gmail.com"
             smtp_port = 587
-            sender_email = "xxxxx@gmail.com"
-            password = "xxxxx"
-            recipient = "xxxxx@gmail.com"
+            sender_email = self.email_settings.sender_email.text()
+            password = self.email_settings.email_password.text()
+            recipient = self.email_settings.recipient_email.text()
+
+            if not all([sender_email, password, recipient]):
+                print("Email settings not configured")
+                return
 
             # Create message
             msg = MIMEMultipart()
