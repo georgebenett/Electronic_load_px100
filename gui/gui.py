@@ -5,6 +5,7 @@ import tempfile
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, time
+from PyQt5.QtWidgets import QPushButton, QMessageBox
 
 matplotlib.use('Qt5Agg')
 
@@ -56,7 +57,84 @@ class MainWindow(QtWidgets.QMainWindow):
         self.internal_r = InternalR()
         self.email_settings = EmailSettings()
         self.email_settings.set_main_window(self)
-        self.controlsLayout.insertWidget(3, self.internal_r)
+        
+        # Create the Start Test button
+        self.start_test_button = QPushButton("Start Test")
+        self.start_test_button.clicked.connect(self.toggle_test)
+        self.start_test_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(200, 255, 200, 0.7);
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px 15px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: rgba(180, 255, 180, 0.8);
+            }
+            QPushButton:pressed {
+                background-color: rgba(160, 255, 160, 0.9);
+            }
+        """)
+        self.test_running = False
+        
+        # Create the Manual Send Email button
+        self.send_email_button = QPushButton("Manual Send Email")
+        self.send_email_button.clicked.connect(self.send_manual_email)
+        self.send_email_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 200, 200, 0.7);
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 180, 180, 0.8);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 160, 160, 0.9);
+            }
+        """)
+        
+        # Find and replace the Enable Load checkbox
+        # Try different possible names for the checkbox
+        checkbox_widget = None
+        checkbox_names = ['en_checkbox', 'enableCheckBox', 'loadEnabledCheckBox', 'enableLoadCheckBox']
+        
+        for name in checkbox_names:
+            if hasattr(self, name):
+                checkbox_widget = getattr(self, name)
+                break
+        
+        if checkbox_widget:
+            # Find the checkbox in the layout and replace it
+            checkbox_index = None
+            for i in range(self.controlsLayout.count()):
+                item = self.controlsLayout.itemAt(i)
+                if item and item.widget() == checkbox_widget:
+                    checkbox_index = i
+                    break
+            
+            if checkbox_index is not None:
+                self.controlsLayout.removeWidget(checkbox_widget)
+                checkbox_widget.hide()
+                self.controlsLayout.insertWidget(checkbox_index, self.start_test_button)
+            else:
+                # If not found in layout, just add the button at the beginning
+                self.controlsLayout.insertWidget(0, self.start_test_button)
+        else:
+            # If checkbox not found, add the button at the beginning
+            self.controlsLayout.insertWidget(0, self.start_test_button)
+        
+        # Add other widgets
+        self.controlsLayout.addWidget(self.internal_r)
+        
+        # Group the control buttons together at the end
+        self.controlsLayout.addWidget(self.resetButton)
+        self.controlsLayout.addWidget(self.send_email_button)
+        
         self.tab2.layout().addWidget(self.logControl, 0, 0)
         self.tab2.layout().addWidget(self.swCCCV, 1, 0)
         self.tab2.layout().addWidget(self.email_settings, 2, 0)
@@ -76,7 +154,6 @@ class MainWindow(QtWidgets.QMainWindow):
         return layout
 
     def map_controls(self):
-        self.en_checkbox.stateChanged.connect(self.enabled_changed)
         self.set_voltage.valueChanged.connect(self.voltage_changed)
         self.set_current.valueChanged.connect(self.current_changed)
         self.set_timer.timeChanged.connect(self.timer_changed)
@@ -348,6 +425,120 @@ The test data files and plot are attached.
         except Exception as e:
             print(f"❌ Failed to send email: {str(e)}")
             self.email_settings.save_email_history(subject, recipient, f'failed - {str(e)}')
+
+    def toggle_test(self):
+        """Toggle the test state between start and stop."""
+        if not self.test_running:
+            # Start the test
+            self.test_running = True
+            self.start_test_button.setText("Stop Test")
+            self.start_test_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 200, 100, 0.7);
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    padding: 8px 15px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 180, 80, 0.8);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(255, 160, 60, 0.9);
+                }
+            """)
+            self.backend.send_command({Instrument.COMMAND_ENABLE: True})
+            print("Test started")
+        else:
+            # Stop the test
+            self.test_running = False
+            self.start_test_button.setText("Start Test")
+            self.start_test_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(200, 255, 200, 0.7);
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    padding: 8px 15px;
+                    font-weight: bold;
+                    font-size: 12px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(180, 255, 180, 0.8);
+                }
+                QPushButton:pressed {
+                    background-color: rgba(160, 255, 160, 0.9);
+                }
+            """)
+            self.backend.send_command({Instrument.COMMAND_ENABLE: False})
+            print("Test stopped")
+
+    def send_manual_email(self):
+        """Manually send test results email from main UI."""
+        try:
+            # Check if we have data
+            data = self.backend.datastore
+            if not data or len(data.data) < 2:
+                QMessageBox.warning(self, "No Data", "No test data available to send.")
+                return
+
+            # Get test data
+            voltage = data.lastval('voltage')
+            current = data.lastval('current')
+            cap_ah = data.lastval('cap_ah')
+            cap_wh = data.lastval('cap_wh')
+            test_time = data.lastval('time')
+            cell_label = self.cellLabel.text()
+
+            # Check email settings
+            sender_email = self.email_settings.sender_email.text()
+            password = self.email_settings.email_password.text()
+            recipient = self.email_settings.recipient_email.text()
+
+            if not all([sender_email, password, recipient]):
+                QMessageBox.warning(self, "Missing Information", 
+                    "Please configure email settings in the Settings tab before sending.")
+                return
+
+            # Create temporary files for attachments
+            attachments = []
+            
+            # Save plot
+            plot_filename = f"{cell_label.replace(' ', '_')}_plot.png"
+            fd, plot_file = tempfile.mkstemp(suffix=f'_{plot_filename}')
+            os.close(fd)
+            self.canvas.fig.savefig(plot_file, dpi=100)
+            attachments.append(plot_file)
+
+            # Send email with test results
+            subject = f"Battery Test Results: {cell_label}"
+            message = f"""Battery Test Results for {cell_label}
+
+Results:
+- Current Voltage: {voltage:.3f} V
+- Current Current: {current:.3f} A
+- Capacity: {cap_ah:.3f} AH / {cap_wh:.3f} WH
+- Test Duration: {test_time.strftime("%H:%M:%S")}
+
+Test plot is attached.
+"""
+            
+            print(f"Manually sending email for {cell_label}...")
+            self.send_email_notification(subject, message, attachments)
+
+            QMessageBox.information(self, "Success", 
+                f"Test results email sent successfully to {recipient}!")
+            
+            # Clean up temporary files
+            for file_path in attachments:
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "Error", 
+                f"Failed to send email:\n{str(e)}")
 
 
 class GUI:

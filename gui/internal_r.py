@@ -37,7 +37,7 @@ class InternalRTableModel(QAbstractTableModel):
         if self.rowCount(1):
             filename = "{}_internal_r_{}.csv".format(prefix, datetime.now().strftime("%Y%m%d_%H%M%S"))
             full_path = path.join(basedir, filename)
-            print("Write Internal R data to {}".format(path.basename(full_path)))
+            print(f"Saved internal R data: {path.basename(full_path)}")
             self._data.drop_duplicates().to_csv(full_path)
             return full_path
         return None
