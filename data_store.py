@@ -52,11 +52,11 @@ class DataStore:
         full_path = path.join(basedir, filename)
         export_rows = self.data.drop_duplicates()
         if export_rows.shape[0]:
-            print(f"💾 Saved raw data: {path.basename(full_path)}")
+            print(f"Saved raw data: {path.basename(full_path)}")
             self.data.drop_duplicates().to_csv(full_path)
             return full_path
         else:
-            print("❌ No data to save")
+            print("No data to save")
             return None
 
     def plot(self, **args):

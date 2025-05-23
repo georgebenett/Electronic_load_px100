@@ -109,29 +109,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 break
         
         if checkbox_widget:
-            # Find the checkbox in the layout and replace it
-            checkbox_index = None
+            # Remove the checkbox from layout
             for i in range(self.controlsLayout.count()):
                 item = self.controlsLayout.itemAt(i)
                 if item and item.widget() == checkbox_widget:
-                    checkbox_index = i
+                    self.controlsLayout.removeWidget(checkbox_widget)
+                    checkbox_widget.hide()
                     break
-            
-            if checkbox_index is not None:
-                self.controlsLayout.removeWidget(checkbox_widget)
-                checkbox_widget.hide()
-                self.controlsLayout.insertWidget(checkbox_index, self.start_test_button)
-            else:
-                # If not found in layout, just add the button at the beginning
-                self.controlsLayout.insertWidget(0, self.start_test_button)
-        else:
-            # If checkbox not found, add the button at the beginning
-            self.controlsLayout.insertWidget(0, self.start_test_button)
         
-        # Add other widgets
+        # Add other widgets first
         self.controlsLayout.addWidget(self.internal_r)
         
         # Group the control buttons together at the end
+        self.controlsLayout.addWidget(self.start_test_button)
         self.controlsLayout.addWidget(self.resetButton)
         self.controlsLayout.addWidget(self.send_email_button)
         
@@ -300,7 +290,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def reset_dev(self, s):
         self.resetButton.clearFocus()
-        self.write_logs()
+        # Don't write logs/send email on reset - just reset the components
+        # self.write_logs()  # Comment out or remove this line
         self.swCCCV.reset()
         self.internal_r.reset()
         self.backend.datastore.reset()
