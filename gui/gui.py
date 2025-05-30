@@ -123,6 +123,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def data_row(self, data, row):
         if data:
+            # Track last successful data time
+            self.last_data_time = datetime.now()
+
             set_voltage = data.lastval('set_voltage')
             if not self.set_voltage.hasFocus():
                 self.set_voltage.setValue(set_voltage)
@@ -175,6 +178,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # Store current state for next comparison
             self.prev_is_on = row.get('is_on', False)
+
+        else:
+            # Handle case where data is None (communication error)
+            if not hasattr(self, 'last_data_time'):
+                self.last_data_time = datetime.now()
+
+            # Check if we haven't received data for too long
+            time_since_data = (datetime.now() - self.last_data_time).total_seconds()
+            if time_since_data > 30:  # 30 seconds without data
+                self.setWindowTitle("Battery tester - CONNECTION LOST")
+                self.statusBar().showMessage("Warning: No data received for 30+ seconds")
+            elif time_since_data > 10:  # 10 seconds without data
+                self.statusBar().showMessage(f"Warning: No data for {int(time_since_data)}s")
 
     def status_update(self, status):
         self.statusBar().showMessage(status)
